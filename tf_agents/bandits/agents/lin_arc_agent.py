@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implements the Linear Thompson Sampling bandit algorithm.
+"""Implements the Linear ARC bandit algorithm.
 
-******** MODIFIED FROM ORIGINAL TO SUPPORT PASSING A VARIANCE FUNCTION *********
+************************ ADDED TO SUPPORT ARC ALGORITHM ************************
 
   Reference:
-  "Thompson Sampling for Contextual Bandits with Linear Payoffs",
-  Shipra Agrawal, Navin Goyal, ICML 2013. The actual algorithm implemented is
-  `Algorithm 3` from the supplementary material of the paper from
-  `http://proceedings.mlr.press/v28/agrawal13-supp.pdf`.
+  "Asymptotic Randomised Control with applications to bandits",
+  S. N. Cohen and T. Treetanthiploet, arXiv:2010.07252, 2020.
 
 """
 
@@ -40,21 +38,12 @@ from tf_agents.typing import types
 
 
 @gin.configurable
-class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
-  """Linear Thompson Sampling Agent.
+class LinearARCAgent(lin_agent.LinearBanditAgent):
+  """An agent implementing the Linear ARC bandit algorithm.
 
-  Implements the Linear Thompson Sampling Agent from the following paper:
-  "Thompson Sampling for Contextual Bandits with Linear Payoffs",
-  Shipra Agrawal, Navin Goyal, ICML 2013. The actual algorithm implemented is
-  `Algorithm 3` from the supplementary material of the paper from
-  `http://proceedings.mlr.press/v28/agrawal13-supp.pdf`.
-
-  In a nutshell, the agent maintains two parameters `weight_covariances` and
-  `parameter_estimators`, and updates them based on experience. The inverse of
-  the weight covariance parameters are updated with the outer product of the
-  observations using the Woodbury inverse matrix update, while the parameter
-  estimators are updated by the reward-weighted observation vectors for every
-  action.
+  Reference:
+  "Asymptotic Randomised Control with applications to bandits",
+  S. N. Cohen and T. Treetanthiploet, arXiv:2010.07252, 2020.
   """
 
   def __init__(self,
@@ -64,10 +53,13 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
                    lin_agent.LinearBanditVariableCollection] = None,
                alpha: float = 1.0,
                gamma: float = 1.0,
+               rho: float = 0.1,        # Added for ARC
+               beta: float = 0.99,      # Added for ARC
                use_eigendecomp: bool = False,
                tikhonov_weight: float = 1.0,
                add_bias: bool = False,
                emit_policy_info: Sequence[Text] = (),
+               emit_log_probability: bool = False,
                observation_and_action_constraint_splitter: Optional[
                    types.Splitter] = None,
                accepts_per_arm_features: bool = False,
@@ -77,7 +69,7 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
                enable_summaries: bool = True,
                dtype: tf.DType = tf.float32,
                name: Optional[Text] = None):
-    """Initialize an instance of `LinearThompsonSamplingAgent`.
+    """Initialize an instance of `LinearUCBAgent`.
 
     Args:
       time_step_spec: A `TimeStep` spec describing the expected `TimeStep`s.
@@ -90,6 +82,8 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
         multiplies the confidence intervals.
       gamma: a float forgetting factor in [0.0, 1.0]. When set to
         1.0, the algorithm does not forget.
+      rho: a float exploratory parameter for the ARC algorithm
+      beta: a float discount factor in [0.0, 1.0] for the ARC algorithm
       use_eigendecomp: whether to use eigen-decomposition or not. The default
         solver is Conjugate Gradient.
       tikhonov_weight: (float) tikhonov regularization term.
@@ -98,6 +92,8 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
       emit_policy_info: (tuple of strings) what side information we want to get
         as part of the policy info. Allowed values can be found in
         `policy_utilities.PolicyInfo`.
+      emit_log_probability: Whether the LinearUCBPolicy emits log-probabilities
+        or not. Since the policy is deterministic, the probability is just 1.
       observation_and_action_constraint_splitter: A function used for masking
         valid/invalid actions with each state of the environment. The function
         takes in a full observation and returns a tuple consisting of 1) the
@@ -117,14 +113,13 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
         (debug or otherwise) should not be written.
       dtype: The type of the parameters stored and updated by the agent. Should
         be one of `tf.float32` and `tf.float64`. Defaults to `tf.float32`.
-      name: a name for this instance of `LinearThompsonSamplingAgent`.
+      name: a name for this instance of `LinearUCBAgent`.
 
     Raises:
       ValueError if dtype is not one of `tf.float32` or `tf.float64`.
     """
-    super(LinearThompsonSamplingAgent, self).__init__(
-        exploration_policy=(
-            lin_agent.ExplorationPolicy.linear_thompson_sampling_policy),
+    super(LinearARCAgent, self).__init__(
+        exploration_policy=lin_agent.ExplorationPolicy.linear_arc_policy,
         time_step_spec=time_step_spec,
         action_spec=action_spec,
         variable_collection=variable_collection,
@@ -134,7 +129,7 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
         tikhonov_weight=tikhonov_weight,
         add_bias=add_bias,
         emit_policy_info=emit_policy_info,
-        emit_log_probability=False,
+        emit_log_probability=emit_log_probability,
         observation_and_action_constraint_splitter=(
             observation_and_action_constraint_splitter),
         accepts_per_arm_features=accepts_per_arm_features,

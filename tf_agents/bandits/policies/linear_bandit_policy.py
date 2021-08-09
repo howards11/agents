@@ -15,7 +15,9 @@
 
 """Linear Bandit Policy.
 
-LinUCB and Linear Thompson Sampling policies derive from this class.
+*************** MODIFIED FROM ORIGINAL TO SUPPORT ARC ALGORITHM ****************
+
+LinUCB, Linear Thompson Sampling and Linear ARC policies derive from this class.
 
 This linear policy handles two main forms of feature input.
 1. A single global feature is received per time step. In this case, the policy
@@ -40,8 +42,10 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
+import numpy as np
+
 from enum import Enum
-from typing import Optional, Sequence, Text
+from typing import Callable, Optional, Sequence, Text
 
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
@@ -56,11 +60,16 @@ from tf_agents.typing import types
 
 tfd = tfp.distributions
 
+from tf_agents.bandits.policies import arc_policy
+from scipy.linalg import block_diag, solve
+import time
+
 
 class ExplorationStrategy(Enum):
   """Possible exploration strategies."""
   optimistic = 1
   sampling = 2
+  arc = 3
 
 
 class LinearBanditPolicy(tf_policy.TFPolicy):
@@ -75,6 +84,8 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
                exploration_strategy: ExplorationStrategy = ExplorationStrategy
                .optimistic,
                alpha: float = 1.0,
+               rho: float = 0.1,        # Added for ARC
+               beta: float = 0.99,      # Added for ARC
                eig_vals: Sequence[types.Float] = (),
                eig_matrix: Sequence[types.Float] = (),
                tikhonov_weight: float = 1.0,
@@ -82,6 +93,7 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
                emit_policy_info: Sequence[Text] = (),
                emit_log_probability: bool = False,
                accepts_per_arm_features: bool = False,
+               variance_fn: Callable[[types.Tensor], float] = lambda x: 1, # Added for ARC
                observation_and_action_constraint_splitter: Optional[
                    types.Splitter] = None,
                name: Optional[Text] = None):
@@ -108,6 +120,8 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
         used for choosing the actions to incorporate exploration. Currently
         supported strategies are `optimistic` and `sampling`.
       alpha: a float value used to scale the confidence intervals.
+      rho: a float exploratory parameter for the ARC algorithm
+      beta: a float discount factor in [0.0, 1.0] for the ARC algorithm
       eig_vals: list of eigenvalues for each covariance matrix (one per arm,
         unless the policy accepts per-arm features).
       eig_matrix: list of eigenvectors for each covariance matrix (one per arm,
@@ -121,6 +135,8 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
       emit_log_probability: Whether to emit log probabilities.
       accepts_per_arm_features: (bool) Whether the policy accepts per-arm
         features.
+      variance_fn: (Callable) A function of the observation that calculates the
+        variance in the reward (default gives equal variance for all actions)
       observation_and_action_constraint_splitter: A function used for masking
         valid/invalid actions with each state of the environment. The function
         takes in a full observation and returns a tuple consisting of 1) the
@@ -159,12 +175,19 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
       emit_log_probability = False
 
     self._alpha = alpha
+
+    self._beta = beta           # Added for ARC
+    self._rho = rho             # Added for ARC
+
     self._use_eigendecomp = False
     if eig_matrix:
       self._use_eigendecomp = True
     self._tikhonov_weight = tikhonov_weight
     self._add_bias = add_bias
     self._accepts_per_arm_features = accepts_per_arm_features
+
+    self._variance_fn = variance_fn     # Added for ARC
+
     if tf.nest.is_nested(action_spec):
       raise ValueError('Nested `action_spec` is not supported.')
 
@@ -220,6 +243,10 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
     return [v for v in tf.nest.flatten(all_vars) if isinstance(v, tf.Variable)]
 
   def _distribution(self, time_step, policy_state):
+
+    total = 0
+    ts = time.time()
+
     observation = time_step.observation
     if self.observation_and_action_constraint_splitter is not None:
       observation, _ = self.observation_and_action_constraint_splitter(
@@ -246,8 +273,18 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
     global_observation = tf.reshape(global_observation,
                                     [-1, self._global_context_dim])
 
+    time_taken = time.time()-ts
+    #print('Time for observations:', time_taken)
+    total += time_taken
+    ts = time.time()
+
     est_rewards = []
     confidence_intervals = []
+
+    ## Variables used for ARC algorithm
+    B = []
+    ##
+
     for k in range(self._num_actions):
       current_observation = self._get_current_observation(
           global_observation, arm_observations, k)
@@ -264,12 +301,13 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
         a_inv_x = tf.matmul(self._eig_matrix[model_index],
                             tf.einsum('j,jk->jk', lambda_inv, q_t_b))
       else:
-        a_inv_x = linalg.conjugate_gradient(
-            self._cov_matrix[model_index] + self._tikhonov_weight *
+        a_inv_x = linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+            self._cov_matrix[model_index] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
             tf.eye(self._overall_context_dim, dtype=self._dtype),
             tf.linalg.matrix_transpose(current_observation))
-      est_mean_reward = tf.einsum('j,jk->k', self._data_vector[model_index],
-                                  a_inv_x)
+
+      est_mean_reward = tf.einsum('j,jk->k', self._data_vector[model_index],    # This is a vector-matrix multiplication (hence the j,jk -> k). The vector is the data of the model_index,
+                                  a_inv_x)                                      # the matrix is a_inv_x (theta^ a in the UCB paper)
       est_rewards.append(est_mean_reward)
 
       ci = tf.reshape(
@@ -277,7 +315,149 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
           [-1, 1])
       confidence_intervals.append(ci)
 
+      ######################### Added for ARC implemetation ####################
+      if self._exploration_strategy == ExplorationStrategy.arc:
+          #print('current_observation', current_observation)
+          #B.append(current_observation[0])
+          B.append(current_observation)
+
+    time_taken = time.time()-ts
+    #print('Time for rewards/CIs:', time_taken)
+    total += time_taken
+    ts = time.time()
+    ####### Used for ARC ######################################################################
+
+    d =  tf.stack(confidence_intervals, axis=-1)
+
+    # Calculate m and Sigma in the Stationary Stochastic Per Arm case (see Section 3.1 of Research Summary)
+    if self._accepts_per_arm_features and self._exploration_strategy == ExplorationStrategy.arc:
+
+        B = tf.convert_to_tensor(B)
+        B = tf.transpose(B, perm=[1,0,2])   # Permute dimensions of B accordingly
+
+        ts2 = time.time()
+        m =  linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+            self._cov_matrix[model_index] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+            tf.eye(self._overall_context_dim, dtype=self._dtype),
+            tf.reshape(tf.convert_to_tensor(self._data_vector[model_index]), [-1,1]))
+        #print('First Conjugate gradient time:', time.time()-ts2)
+        m = tf.reshape(m, [1,-1])[0]
+
+        #ts2 = time.time()
+        #sol = solve(self._cov_matrix[model_index] + self._tikhonov_weight * tf.eye(self._overall_context_dim, dtype=self._dtype),
+        #    tf.reshape(tf.convert_to_tensor(self._data_vector[model_index]), [-1,1]),
+        #    assume_a = 'sym')
+        #print('SciPy solve time:', time.time()-ts2)
+
+        ts2 = time.time()
+        Sigma = linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+            self._cov_matrix[model_index] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+            tf.eye(self._overall_context_dim, dtype=self._dtype),
+            tf.eye(self._overall_context_dim, dtype=self._dtype))
+        #print('Conjugate gradient time:', time.time()-ts2)
+
+        #ts2 = time.time()
+        #Sigma2 = np.linalg.inv(self._cov_matrix[model_index] + self._tikhonov_weight *tf.eye(self._overall_context_dim, dtype=self._dtype))
+        #print('numpy inverse time:', time.time()-ts2)
+
+
+    time_taken = time.time()-ts
+    #print('Time for ARC per arm params:', time_taken)
+    total += time_taken
+    ts = time.time()
+
+    # Calculate m and Sigma in the Stationary Stochastic case (see Section 3.1 of Research Summary)
+    if not self._accepts_per_arm_features and self._exploration_strategy == ExplorationStrategy.arc:
+        ts2 = time.time()
+
+        # Stack global observation to get B as described in Section 3.1 of Research Summary
+        B = []
+        for batch in global_observation:
+            B.append(np.kron(np.eye(self._num_actions), batch))
+        B = tf.convert_to_tensor(B)
+        #print('Create B time:', time.time()-ts2)
+
+        # Stack to get m and Sigma as described in Section 3.1 of Research Summary
+        m = []
+        Sigma_lst = []
+        for i in range(self._num_actions):
+
+            ts2 = time.time()
+            m.append(linalg.conjugate_gradient(                           # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+                self._cov_matrix[i] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+                tf.eye(self._overall_context_dim, dtype=self._dtype),
+                tf.reshape(tf.convert_to_tensor(self._data_vector[i]), [-1,1])))
+            #print('First Conjugate gradient time:', time.time()-ts2)
+
+            #ts2 = time.time()
+            #sol = solve(self._cov_matrix[i] + self._tikhonov_weight * tf.eye(self._overall_context_dim, dtype=self._dtype),
+            #    tf.reshape(tf.convert_to_tensor(self._data_vector[i]), [-1,1]),
+            #    assume_a = 'sym')
+            #print('SciPy solve time:', time.time()-ts2)
+
+            ts2 = time.time()
+            Sigma_new = linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+                self._cov_matrix[i] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+                tf.eye(self._overall_context_dim, dtype=self._dtype),
+                tf.eye(self._overall_context_dim, dtype=self._dtype))
+            #print('Conjugate gradient time:', time.time()-ts2)
+
+            #ts2 = time.time()
+            #Sigma2 = np.linalg.inv(self._cov_matrix[i] + self._tikhonov_weight *tf.eye(self._overall_context_dim, dtype=self._dtype))
+            #print('numpy inverse time:', time.time()-ts2)
+
+            #print(Sigma_new-Sigma2)
+
+            Sigma_lst.append(tf.linalg.LinearOperatorFullMatrix(Sigma_new))
+            #print(m)
+        ts2 = time.time()
+        m = tf.reshape(tf.concat(m, axis=0), [-1])
+        #print('reshape time:', time.time()-ts2)
+        #print('m:', m)
+        ts2 = time.time()
+        Sigma = tf.linalg.LinearOperatorBlockDiag(Sigma_lst).to_dense()
+        #print('BlockDiag time:', time.time()-ts2)
+        #Sigma = tf.convert_to_tensor(Sigma)
+        #print('Sigma:', Sigma)
+
+        ######## Sort Sigma BLOCK MATRIX
+    time_taken = time.time()-ts
+    #print('Time for SRC sspe params:', time_taken)
+    total += time_taken
+    ts = time.time()
+
+    # Calculate variance vector and inverse variance vector P for the observations
+    # using the variance fn. The vector P is passed to the ARC algorithm.
+    if self._exploration_strategy == ExplorationStrategy.arc:
+        Var = []
+        for i in range(B.shape[0]):
+            batch_Var = []
+            for j in range(self._num_actions):
+                batch_Var.append(self._variance_fn(B[i][j]))
+            Var.append(batch_Var)
+        #Var = np.apply_along_axis(variance_fn, 2, B)
+        Var = np.array(Var)
+        print(B)
+        print('Var:', Var)
+        P = np.array(1/Var)
+        print('P:', P)
+
+        self.Sigma_0_inv = np.identity(self._num_actions)
+
+    #Var = np.ones(self._num_actions)
+    #self.P = np.array(1/Var)
+    #############################################################################################
+
     if self._exploration_strategy == ExplorationStrategy.optimistic:
+
+      m =  linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+          self._cov_matrix[model_index] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+          tf.eye(self._overall_context_dim, dtype=self._dtype),
+          tf.reshape(tf.convert_to_tensor(self._data_vector[model_index]), [-1,1]))
+      #print('First Conjugate gradient time:', time.time()-ts2)
+      m = tf.reshape(m, [1,-1])[0]
+      print('m', m)
+
       optimistic_estimates = [
           tf.reshape(mean_reward, [-1, 1]) + self._alpha * tf.sqrt(confidence)
           for mean_reward, confidence in zip(est_rewards, confidence_intervals)
@@ -286,11 +466,33 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
       rewards_for_argmax = tf.squeeze(
           tf.stack(optimistic_estimates, axis=-1), axis=[1])
     elif self._exploration_strategy == ExplorationStrategy.sampling:
+
+      m =  linalg.conjugate_gradient(                                    # This is where the cov matrix is used, to calculate the a_inv_x (theta^ a in the UCB paper)
+          self._cov_matrix[model_index] + self._tikhonov_weight *             # Conjugate_gradient(A,B) calculates X such that A*X = B
+          tf.eye(self._overall_context_dim, dtype=self._dtype),
+          tf.reshape(tf.convert_to_tensor(self._data_vector[model_index]), [-1,1]))
+      #print('First Conjugate gradient time:', time.time()-ts2)
+      m = tf.reshape(m, [1,-1])[0]
+      print('m for ts', m)
       mu_sampler = tfd.Normal(
           loc=tf.stack(est_rewards, axis=-1),
           scale=self._alpha *
           tf.sqrt(tf.squeeze(tf.stack(confidence_intervals, axis=-1), axis=1)))
       rewards_for_argmax = mu_sampler.sample()
+
+    ########## Add ARC policy ##########
+    elif self._exploration_strategy == ExplorationStrategy.arc:
+      rewards_for_argmax = []
+      for i in range(B.shape[0]):   # Determines how many actions are needed (depending on batch size etc)
+          # Define arguments to pass to the ARC algorithm
+          self.B = np.matrix(B[i])
+          self.d = d[i][0]
+          self.P = P[i]
+          # Call ARC algorithm
+          choice = arc_policy.ARC_policy(self, m, Sigma, rho=self._rho, beta=self._beta)
+          # rewards_for_argmax has a 1 in the chosen action, 0 elsewhere.
+          rewards_for_argmax.append(tf.reshape(tf.one_hot(choice, self._num_actions), [1,-1]))
+      rewards_for_argmax = tf.reshape(tf.convert_to_tensor(rewards_for_argmax), [-1, self._num_actions])
     else:
       raise ValueError('Exploraton strategy %s not implemented.' %
                        self._exploration_strategy)
@@ -311,10 +513,21 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
 
     action_distributions = tfp.distributions.Deterministic(loc=chosen_actions)
 
+    #print('a_inv_x:', a_inv_x)
+    #print('est_rewards:', tf.stack(est_rewards, axis=-1))
+    #print('chosen_actions', chosen_actions)
+    #print('rewards_for_argmax:', rewards_for_argmax)
+    #print('confidence_intervals', tf.stack(confidence_intervals, axis=-1))
+    #print('optimistic rewards:', rewards_for_argmax)
     policy_info = policy_utilities.populate_policy_info(
         arm_observations, chosen_actions, rewards_for_argmax,
         tf.stack(est_rewards, axis=-1), self._emit_policy_info,
         self._accepts_per_arm_features)
+
+    time_taken = time.time()-ts
+    #print('Time for decision:', time_taken)
+    total += time_taken
+    #print('Total time:', total)
 
     return policy_step.PolicyStep(
         action_distributions, policy_state, policy_info)

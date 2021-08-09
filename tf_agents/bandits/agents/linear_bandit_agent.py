@@ -15,7 +15,9 @@
 
 """An agent that maintains linear estimates for rewards and their uncertainty.
 
-LinUCB and Linear Thompson Sampling agents are subclasses of this agent.
+*************** MODIFIED FROM ORIGINAL TO SUPPORT ARC ALGORITHM ****************
+
+LinUCB, Linear Thompson Sampling and Linear ARC agents are subclasses of this agent.
 """
 
 from __future__ import absolute_import
@@ -24,10 +26,12 @@ from __future__ import division
 from __future__ import print_function
 
 from enum import Enum
-from typing import Optional, Sequence, Text, Tuple
+from typing import Callable, Optional, Sequence, Text, Tuple
 
 import gin
 import tensorflow as tf
+import numpy as np
+
 
 from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
@@ -45,6 +49,7 @@ class ExplorationPolicy(Enum):
   """Possible exploration policies."""
   linear_ucb_policy = 1
   linear_thompson_sampling_policy = 2
+  linear_arc_policy = 3     # Added for ARC
 
 
 class LinearBanditVariableCollection(tf.Module):
@@ -108,12 +113,13 @@ class LinearBanditVariableCollection(tf.Module):
 
 
 def update_a_and_b_with_forgetting(
+    variance_fn,
     a_prev: types.Tensor,
     b_prev: types.Tensor,
     r: types.Tensor,
     x: types.Tensor,
     gamma: float,
-    compute_eigendecomp: bool = False
+    compute_eigendecomp: bool = False,
 ) -> Tuple[types.Tensor, types.Tensor, types.Tensor, types.Tensor]:
   r"""Update the covariance matrix `a` and the weighted sum of rewards `b`.
 
@@ -121,6 +127,8 @@ def update_a_and_b_with_forgetting(
   rewards `b` using a forgetting factor `gamma`.
 
   Args:
+    variance_fn: (Callable) A function of the observation that calculates the
+      variance in the reward (default gives equal variance for all actions)
     a_prev: previous estimate of `a`.
     b_prev: previous estimate of `b`.
     r: a `Tensor` of shape [`batch_size`]. This is the rewards of the batched
@@ -135,8 +143,19 @@ def update_a_and_b_with_forgetting(
     The updated estimates of `a` and `b` and optionally the eigenvalues and
     eigenvectors of `a`.
   """
-  a_new = gamma * a_prev + tf.matmul(x, x, transpose_a=True)
-  b_new = gamma * b_prev + bandit_utils.sum_reward_weighted_observations(r, x)
+
+  # Compute the variance in the reward from the observation x
+  # Note that if no variance function is passed, the variance is assumed to be
+  # equal for all arms (and is set to 1)
+  var = np.apply_along_axis(variance_fn, 1, x).reshape(-1,1)
+
+  print('Observation:', x, 'gives variance', var)
+
+  # Update the state variables according to the observation x, the received
+  # reward r, and the known variance in said reward
+  a_new = gamma * a_prev + tf.matmul((1/var)*x, x, transpose_a=True)
+  print('r', r)
+  b_new = gamma * b_prev + bandit_utils.sum_reward_weighted_observations(tf.convert_to_tensor(np.multiply(r, 1/var).astype(np.float32)), x)      ##### CHANGED!!!!   # Adds the pointwise product of x and r
 
   eig_vals = tf.constant([], dtype=a_new.dtype)
   eig_matrix = tf.constant([], dtype=a_new.dtype)
@@ -157,6 +176,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
       variable_collection: Optional[LinearBanditVariableCollection] = None,
       alpha: float = 1.0,
       gamma: float = 1.0,
+      rho: float = 0.1,        # Added for ARC
+      beta: float = 0.99,      # Added for ARC
       use_eigendecomp: bool = False,
       tikhonov_weight: float = 1.0,
       add_bias: bool = False,
@@ -165,6 +186,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
       observation_and_action_constraint_splitter: Optional[
           types.Splitter] = None,
       accepts_per_arm_features: bool = False,
+      variance_fn: Callable[[types.Tensor], float] = lambda x: 1, # Added for ARC
       debug_summaries: bool = False,
       summarize_grads_and_vars: bool = False,
       enable_summaries: bool = True,
@@ -175,7 +197,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
     Args:
       exploration_policy: An Enum of type `ExplorationPolicy`. The kind of
         policy we use for exploration. Currently supported policies are
-        `LinUCBPolicy` and `LinearThompsonSamplingPolicy`.
+        `LinUCBPolicy`, `LinearThompsonSamplingPolicy` and `LinearARCPolicy`.
       time_step_spec: A `TimeStep` spec describing the expected `TimeStep`s.
       action_spec: A scalar `BoundedTensorSpec` with `int32` or `int64` dtype
         describing the number of actions for this agent.
@@ -186,6 +208,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
         multiplies the confidence intervals.
       gamma: a float forgetting factor in [0.0, 1.0]. When set to 1.0, the
         algorithm does not forget.
+      rho: a float exploratory parameter for the ARC algorithm
+      beta: a float discount factor in [0.0, 1.0] for the ARC algorithm
       use_eigendecomp: whether to use eigen-decomposition or not. The default
         solver is Conjugate Gradient.
       tikhonov_weight: (float) tikhonov regularization term.
@@ -205,6 +229,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
         observation and mask.
       accepts_per_arm_features: (bool) Whether the agent accepts per-arm
         features.
+      variance_fn: (Callable) A function of the observation that calculates the
+        variance in the reward (default gives equal variance for all actions)
       debug_summaries: A Python bool, default False. When True, debug summaries
         are gathered.
       summarize_grads_and_vars: A Python bool, default False. When True,
@@ -229,6 +255,9 @@ class LinearBanditAgent(tf_agent.TFAgent):
         observation_and_action_constraint_splitter)
     self._time_step_spec = time_step_spec
     self._accepts_per_arm_features = accepts_per_arm_features
+
+    self._variance_fn = variance_fn     # Added for ARC
+
     self._add_bias = add_bias
     if observation_and_action_constraint_splitter is not None:
       context_spec, _ = observation_and_action_constraint_splitter(
@@ -276,9 +305,13 @@ class LinearBanditAgent(tf_agent.TFAgent):
     elif exploration_policy == (
         ExplorationPolicy.linear_thompson_sampling_policy):
       exploration_strategy = lin_policy.ExplorationStrategy.sampling
+    elif exploration_policy == (
+        ExplorationPolicy.linear_arc_policy):
+      exploration_strategy = lin_policy.ExplorationStrategy.arc
     else:
       raise ValueError('Linear bandit agent with policy %s not implemented' %
                        exploration_policy)
+
     policy = lin_policy.LinearBanditPolicy(
         action_spec=action_spec,
         cov_matrix=self._cov_matrix_list,
@@ -287,6 +320,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
         time_step_spec=time_step_spec,
         exploration_strategy=exploration_strategy,
         alpha=alpha,
+        beta = beta,        # Added for ARC
+        rho = rho,          # Added for ARC
         eig_vals=self._eig_vals_list if self._use_eigendecomp else (),
         eig_matrix=self._eig_matrix_list if self._use_eigendecomp else (),
         tikhonov_weight=self._tikhonov_weight,
@@ -294,6 +329,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
         emit_policy_info=emit_policy_info,
         emit_log_probability=emit_log_probability,
         accepts_per_arm_features=accepts_per_arm_features,
+        variance_fn=variance_fn,    # Added for ARC
         observation_and_action_constraint_splitter=(
             observation_and_action_constraint_splitter))
 
@@ -589,25 +625,31 @@ class LinearBanditAgent(tf_agent.TFAgent):
     for k in range(self._num_models):
       diag_mask = tf.linalg.tensor_diag(
           tf.cast(tf.equal(action, k), self._dtype))
-      observations_for_arm = tf.matmul(diag_mask, observation)
-      rewards_for_arm = tf.matmul(diag_mask, tf.reshape(reward, [-1, 1]))
+      observations_for_arm = tf.matmul(diag_mask, observation)                  # Zero vector if arm is not chosen
+      rewards_for_arm = tf.matmul(diag_mask, tf.reshape(reward, [-1, 1]))       # Zero vector if arm is not chosen
 
       num_samples_for_arm_current = tf.reduce_sum(diag_mask)
       tf.compat.v1.assign_add(self._num_samples_list[k],
                               num_samples_for_arm_current)
       num_samples_for_arm_total = self._num_samples_list[k].read_value()
 
+      print('------------------')
+
       # Update the matrix A and b.
       # pylint: disable=cell-var-from-loop,g-long-lambda
       def update(cov_matrix, data_vector):
-        return update_a_and_b_with_forgetting(
+        return update_a_and_b_with_forgetting(self._variance_fn,
             cov_matrix, data_vector, rewards_for_arm, observations_for_arm,
             self._gamma, self._use_eigendecomp)
+
+      # update state space variables
       a_new, b_new, eig_vals, eig_matrix = tf.cond(
           tf.squeeze(num_samples_for_arm_total) > 0,
           lambda: update(self._cov_matrix_list[k], self._data_vector_list[k]),
           lambda: (self._cov_matrix_list[k], self._data_vector_list[k],
                    self._eig_vals_list[k], self._eig_matrix_list[k]))
+      # This only ends up updating the chosen arm cov_matrix and data_vector, as
+      # if action=/=k then we pass zero vectors to the update function
 
       tf.compat.v1.assign(self._cov_matrix_list[k], a_new)
       tf.compat.v1.assign(self._data_vector_list[k], b_new)

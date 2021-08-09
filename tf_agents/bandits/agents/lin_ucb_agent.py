@@ -15,6 +15,8 @@
 
 """Implements the Linear UCB bandit algorithm.
 
+******** MODIFIED FROM ORIGINAL TO SUPPORT PASSING A VARIANCE FUNCTION *********
+
   Reference:
   "A Contextual Bandit Approach to Personalized News Article Recommendation",
   Lihong Li, Wei Chu, John Langford, Robert Schapire, WWW 2010.
@@ -26,7 +28,7 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
-from typing import Optional, Sequence, Text
+from typing import Callable, Optional, Sequence, Text
 
 import gin
 import tensorflow as tf
@@ -59,6 +61,7 @@ class LinearUCBAgent(lin_agent.LinearBanditAgent):
                observation_and_action_constraint_splitter: Optional[
                    types.Splitter] = None,
                accepts_per_arm_features: bool = False,
+               variance_fn: Callable[[types.Tensor], float] = lambda x: 1, # Added for ARC
                debug_summaries: bool = False,
                summarize_grads_and_vars: bool = False,
                enable_summaries: bool = True,
@@ -96,6 +99,8 @@ class LinearUCBAgent(lin_agent.LinearBanditAgent):
         observation and mask.
       accepts_per_arm_features: (bool) Whether the agent accepts per-arm
         features.
+      variance_fn: (Callable) A function of the observation that calculates the
+        variance in the reward (default gives equal variance for all actions)
       debug_summaries: A Python bool, default False. When True, debug summaries
         are gathered.
       summarize_grads_and_vars: A Python bool, default False. When True,
@@ -124,6 +129,7 @@ class LinearUCBAgent(lin_agent.LinearBanditAgent):
         observation_and_action_constraint_splitter=(
             observation_and_action_constraint_splitter),
         accepts_per_arm_features=accepts_per_arm_features,
+        variance_fn=variance_fn,                            # Added for ARC
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
         enable_summaries=enable_summaries,
