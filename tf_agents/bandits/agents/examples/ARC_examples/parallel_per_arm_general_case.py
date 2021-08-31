@@ -74,11 +74,13 @@ NUM_ACTIONS = 20  #@param {type:"integer"}      # Number of actions
 BATCH_SIZE = 1  #@param {type:"integer"}        # Number of batches at each training step
 
 
-ncpu = 1                                # For running simulations in parallel
+ncpu = 3                                # For running simulations in parallel
 
-Rep = 50                                 # Number of simulations
-num_iterations = 100 # @param          # This is the HORIZON
+Rep = 50                                # Number of simulations
+num_iterations = 100 # @param           # This is the HORIZON
 steps_per_loop = 1 # @param
+
+use_previous_sims = False    # Whether to use previously ran simulation results
 
 # Define which of the agents to use (possible agents are defined later)
 agents = ['ucb', 'ts', 'arc_0_01']#, 'arc_0_1', 'arc_1', 'arc_10']
@@ -109,7 +111,7 @@ def run(rep):
     ########## DEFINE HIDDEN PARAMETERS, REWARD FNS, ENVIRONMENT ##########
 
     reward_param = list(np.random.randint(
-          -PARAM_BOUND, PARAM_BOUND, [GLOBAL_DIM + PER_ARM_DIM]))
+          -PARAM_BOUND, PARAM_BOUND, [GLOBAL_DIM + PER_ARM_DIM]).astype(np.float32))
 
     def linear_normal_reward_fn(x):
       """This function generates a reward from the concatenated global and per-arm observations."""
@@ -269,20 +271,20 @@ def run(rep):
 
 ############### RUN THE SIMULATIONS IN PARALLEL, PICKLE RESULTS ################
 
-H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
+if use_previous_sims:
+    previous_H = pickle.load( open('per_arm_general_case_data', "rb" ) )
+    n_previous_sims = len(previous_H)
 
-#previous_H = pickle.load( open('per_arm_general_case_data', "rb" ) )
-#try:
-#    print('previous_H shape', previous_H.shape)
-#except:
-#    print('previous_H shape', len(previous_H))
-
-#H = [*previous_H, *H]
-
-#try:
-#    print('new_H shape', H.shape)
-#except:
-#    print('new_H shape', len(H))
+    if Rep >= n_previous_sims:
+        print('Number of previous simulations:', n_previous_sims)
+        H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep-n_previous_sims))
+        H = [*previous_H, *H]
+        print('Total number of simulations:', len(H))
+    else:
+        print('Error: More existing simulations than value of Rep')
+        H = previous_H
+else:
+    H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
 
 pickle.dump(H, open('per_arm_general_case_data', "wb" ) )
 

@@ -125,6 +125,8 @@ class LinearARCAgent(lin_agent.LinearBanditAgent):
         variable_collection=variable_collection,
         alpha=alpha,
         gamma=gamma,
+        rho=rho,            # Added for ARC
+        beta=beta,          # Added for ARC
         use_eigendecomp=use_eigendecomp,
         tikhonov_weight=tikhonov_weight,
         add_bias=add_bias,

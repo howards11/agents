@@ -69,6 +69,8 @@ Rep = 3                        # Number of simulations
 num_iterations = 10 # @param  # This is the HORIZON (value of T)
 steps_per_loop = 1 # @param
 
+use_previous_sims = False
+
 # Define which of the agents to use (possible agents are defined later)
 agents = ['ucb', 'ts', 'arc_0_01']#, 'arc_0_1', 'arc_1', 'arc_10']
 
@@ -240,7 +242,20 @@ def run(rep):
 
 ############### RUN THE SIMULATIONS IN PARALLEL, PICKLE RESULTS ################
 
-H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
+if use_previous_sims:
+    previous_H = pickle.load( open('sspe_general_case_data', "rb" ) )
+    n_previous_sims = len(previous_H)
+
+    if Rep >= n_previous_sims:
+        print('Number of previous simulations:', n_previous_sims)
+        H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep-n_previous_sims))
+        H = [*previous_H, *H]
+        print('Total number of simulations:', len(H))
+    else:
+        print('Error: More existing simulations than value of Rep')
+        H = previous_H
+else:
+    H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
 
 pickle.dump(H, open('sspe_general_case_data', "wb" ) )
 

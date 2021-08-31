@@ -73,6 +73,8 @@ Rep = 12                            # Number of simulations
 num_iterations = 1000 # @param      # This is the HORIZON
 steps_per_loop = 1 # @param
 
+use_previous_sims = False
+
 # Define which of the agents to use (possible agents are defined later)
 agents = ['ucb', 'ts', 'arc_0_1']#, 'arc_1']
 #agents = ['arc_0_1']
@@ -106,8 +108,7 @@ def run(rep):
     def per_arm_context_sampling_fn():
         """"This function generates a single per-arm observation vector."""
         degrees = np.array([val for (node, val) in G.degree()])
-        #node = np.random.randint(0, GRAPH_SIZE)       # Which vertex we are centred on
-        node = np.random.choice(GRAPH_SIZE, p = degrees/degrees.sum())
+        node = np.random.choice(GRAPH_SIZE, p = degrees/degrees.sum())  # Which vertex we are centred on
         neighbours = [n for n in G[node]]               # list of neighbours of the centre node
         obs = np.zeros(GRAPH_SIZE)
         obs[node] = 1
@@ -122,11 +123,7 @@ def run(rep):
     def linear_normal_reward_fn(x):
       """This function generates a reward from the concatenated global and per-arm observations."""
       mu = np.dot(x, reward_param)
-      #if np.sum(x)==2:
-        #  var = 0.01
-      #else:
-        #  var = 1
-      #var = np.sum(x)**4
+
       def variance_fn(x):
           #return np.dot(x, variance_vector)**3
           if np.sum(x)==1:
@@ -330,20 +327,20 @@ def run(rep):
 
 ############### RUN THE SIMULATIONS IN PARALLEL, PICKLE RESULTS ################
 
-H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
+if use_previous_sims:
+    previous_H = pickle.load( open('graphical_bandit_1_data', "rb" ) )
+    n_previous_sims = len(previous_H)
 
-#previous_H = pickle.load( open('graphical_bandit_1_data', "rb" ) )
-#try:
-#    print('previous_H shape', previous_H.shape)
-#except:
-#    print('previous_H shape', len(previous_H))
-
-#H = [*previous_H, *H]
-
-#try:
-#    print('new_H shape', H.shape)
-#except:
-#    print('new_H shape', len(H))
+    if Rep >= n_previous_sims:
+        print('Number of previous simulations:', n_previous_sims)
+        H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep-n_previous_sims))
+        H = [*previous_H, *H]
+        print('Total number of simulations:', len(H))
+    else:
+        print('Error: More existing simulations than value of Rep')
+        H = previous_H
+else:
+    H = Parallel(n_jobs=ncpu, max_nbytes='10M')(delayed(run)(j) for j in range(Rep))
 
 pickle.dump(H, open('graphical_bandit_1_data', "wb" ) )
 
