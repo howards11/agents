@@ -55,6 +55,7 @@ class LinearARCAgent(lin_agent.LinearBanditAgent):
                gamma: float = 1.0,
                rho: float = 0.1,        # Added for ARC
                beta: float = 0.99,      # Added for ARC
+               Verbose: bool=False,     # Added for ARC
                use_eigendecomp: bool = False,
                tikhonov_weight: float = 1.0,
                add_bias: bool = False,
@@ -127,6 +128,7 @@ class LinearARCAgent(lin_agent.LinearBanditAgent):
         gamma=gamma,
         rho=rho,            # Added for ARC
         beta=beta,          # Added for ARC
+        Verbose=Verbose,    # Added for ARC
         use_eigendecomp=use_eigendecomp,
         tikhonov_weight=tikhonov_weight,
         add_bias=add_bias,

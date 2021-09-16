@@ -76,17 +76,18 @@ NUM_ACTIONS = 10  #@param {type:"integer"}      # Number of actions
 BATCH_SIZE = 1  #@param {type:"integer"}        # Number of batches at each training step
 
 
-ncpu = 3                                # For running simulations in parallel
+ncpu = 5                            # For running simulations in parallel
 
-Rep = 10                                # Number of simulations
-num_iterations = 100 # @param           # This is the HORIZON
+Rep = 1000                          # Number of simulations
+num_iterations = 100 # @param       # This is the HORIZON
 steps_per_loop = 1 # @param
 
-use_previous_sims = False
+use_previous_sims = False           # Whether to use previously ran simulation results
 
 # Define which of the agents to use (possible agents are defined later)
-agents = ['ucb', 'ts', 'arc_0_1']#, 'arc_0_1', 'arc_1', 'arc_10']
-
+agents = ['ucb_0_1', 'ucb_0_5', 'ucb_1', 'ucb_1_5',
+        'ts_0_1', 'ts_0_5', 'ts_1', 'ts_1_5',
+        'arc_0_01', 'arc_0_1', 'arc_1', 'arc_10']
 
 def global_context_sampling_fn():
   """This function generates a single global observation vector."""
@@ -118,7 +119,6 @@ def per_arm_context_sampling_fn():
 ############################# DEFINE RUN FUNCTION ##############################
 
 def run(rep):
-    print('Repetition', rep)
 
     ###### DEFINE HIDDEN PARAMETERS, REWARD FNS, VARIANCE FN, ENVIRONMENT ######
 
@@ -127,11 +127,7 @@ def run(rep):
     def linear_normal_reward_fn(x):
       """This function generates a reward from the concatenated global and per-arm observations."""
       mu = np.dot(x, reward_param)
-      if np.sum(x)==1:
-          var = 0.01
-      else:
-          var = 1
-
+      var = variance_fn(x)
       return np.random.normal(mu, var)#(np.sum(np.abs(x))**2)/50) # VARIANCE)
 
     def variance_fn(x):
@@ -160,17 +156,85 @@ def run(rep):
 
     ################## DEFINE POSSIBLE AGENTS ##################
 
-    ucb_agent = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
+    ucb_agent_0_1 = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
                                          action_spec=action_spec,
                                          accepts_per_arm_features=True,#
                                          variance_fn = variance_fn,
-                                         name='ucb')
+                                         name='ucb_0_1',
+                                         alpha = 0.1)
 
-    ts_agent = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
+
+    ucb_agent_0_5 = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,#
+                                         variance_fn = variance_fn,
+                                         name='ucb_0_5',
+                                         alpha = 0.5)
+
+    ucb_agent_1 = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,#
+                                         variance_fn = variance_fn,
+                                         name='ucb_1',
+                                         alpha = 1)
+
+    ucb_agent_1_5 = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,#
+                                         variance_fn = variance_fn,
+                                         name='ucb_1_5',
+                                         alpha = 1.5)
+
+
+    ucb_agent_2 = lin_ucb_agent.LinearUCBAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,#
+                                         variance_fn = variance_fn,
+                                         name='ucb_2',
+                                         alpha = 2)
+
+    ts_agent_0_1 = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
                                          action_spec=action_spec,
                                          accepts_per_arm_features=True,
                                          variance_fn = variance_fn,
-                                         name = 'ts')
+                                         name = 'ts_0_1',
+                                         alpha = 0.1)
+
+    ts_agent_0_5 = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,
+                                         variance_fn = variance_fn,
+                                         name = 'ts_0_5',
+                                         alpha = 0.5)
+
+    ts_agent_1 = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,
+                                         variance_fn = variance_fn,
+                                         name = 'ts_1',
+                                         alpha = 1)
+
+    ts_agent_1_5 = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,
+                                         variance_fn = variance_fn,
+                                         name = 'ts_1_5',
+                                         alpha = 1.5)
+
+    ts_agent_2 = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,
+                                         variance_fn = variance_fn,
+                                         name = 'ts_2',
+                                         alpha = 2)
+
+    arc_agent_0_001 = lin_arc_agent.LinearARCAgent(time_step_spec=time_step_spec,
+                                         action_spec=action_spec,
+                                         accepts_per_arm_features=True,
+                                         variance_fn = variance_fn,
+                                         name='arc_0_001',
+                                         rho = 0.001,
+                                         beta = 1-1/num_iterations)
 
     arc_agent_0_01 = lin_arc_agent.LinearARCAgent(time_step_spec=time_step_spec,
                                          action_spec=action_spec,
@@ -216,7 +280,6 @@ def run(rep):
           tf.expand_dims(global_obs, axis=1), [1, num_actions, 1])
       concatenated = tf.concat([tiled_global, per_arm_obs], axis=-1)
       rewards = tf.linalg.matvec(concatenated, hidden_param)
-      print('rewards:', rewards)
       return rewards
 
     def optimal_reward(observation):
@@ -229,7 +292,6 @@ def run(rep):
 
     def find_chosen_reward(observation, action):
       """Outputs the expected reward for the chosen element in the batch."""
-      #return _all_rewards(observation, reward_param)[action]
       global_obs = observation['global']
       per_arm_obs = observation['per_arm']
       num_actions = tf.shape(per_arm_obs)[1]
@@ -246,7 +308,9 @@ def run(rep):
 
     ############ RUN THE SIMULATION FOR EACH OF THE AGENTS ############
 
-    possible_agents = [ucb_agent, ts_agent, arc_agent_0_01, arc_agent_0_1, arc_agent_1, arc_agent_10]
+    possible_agents = [ucb_agent_0_1, ucb_agent_0_5, ucb_agent_1, ucb_agent_1_5, ucb_agent_2,
+                    ts_agent_0_1, ts_agent_0_5, ts_agent_1, ts_agent_1_5, ts_agent_2,
+                    arc_agent_0_001, arc_agent_0_01, arc_agent_0_1, arc_agent_1, arc_agent_10]
 
     used_agents = []
     for agent_name in agents:
@@ -265,6 +329,8 @@ def run(rep):
 
         agent = used_agents[i]
 
+        print('Running simulation', rep, 'with agent', agent.name)
+
         replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(             # Stores experience
             data_spec=agent.policy.trajectory_spec,
             batch_size=BATCH_SIZE,
@@ -282,15 +348,11 @@ def run(rep):
         SubOpt_values = []
 
         for _ in range(num_iterations):
-            #print('Iteration', _)
             driver.run()
             loss_info = agent.train(replay_buffer.gather_all())           # Trains agent using the experience in the buffer
             replay_buffer.clear()
             regret_values.append(regret_metric.result())
             SubOpt_values.append(SubOpt_metric.result())
-            print('Repetition', rep)
-            print('reward_param', reward_param)
-            print('--------------')
 
         regret_lst.append(regret_values)
         SubOpt_lst.append(SubOpt_values)
@@ -320,8 +382,6 @@ pickle.dump(H, open('per_arm_with_var_1_data', "wb" ) )
 
 Data = pickle.load( open('per_arm_with_var_1_data', "rb" ) )
 
-Rep = len(Data)
-
 Regret_record = np.zeros((len(agents), Rep, num_iterations))
 SubOpt_record = np.zeros((len(agents), Rep, num_iterations))
 
@@ -331,7 +391,10 @@ for rep in range(Rep):
 
 
 ################################ PLOT RESULTS ##################################
-fig, axs = plt.subplots(2, 2)
+fig, axs = plt.subplots(2, 2, figsize=(8,5))
+
+colors = ['c', 'c', 'c', 'c', 'C1', 'C1', 'C1', 'C1', 'C2', 'C2', 'C2', 'C2', ]
+linestyles = ['-', '--', ':', '-.', '-', '--', ':', '-.', '-', '--', ':', '-.']
 
 # Compute the cumulative regret for each agent
 Cumul_regret = np.cumsum(Regret_record, axis = 2)
@@ -344,29 +407,27 @@ q90_cumul_regret = np.quantile(Cumul_regret, 0.90, axis = 1)
 
 # Plot results
 for i in range(len(agents)):
-    axs[0,0].plot(np.arange(1,num_iterations+1), mean_cumul_regret[i,:], label = agents[i])
+    axs[0,0].plot(np.arange(1,num_iterations+1), mean_cumul_regret[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[0,0].set_title('Mean of regret', fontsize = 8)
-    axs[0,0].legend(loc = 'upper left', fontsize=6)
 
-    axs[0,1].plot(np.arange(1,num_iterations+1), median_cumul_regret[i,:], label = agents[i])
+    axs[0,1].plot(np.arange(1,num_iterations+1), median_cumul_regret[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[0,1].set_title('Median of regret', fontsize = 8)
-    axs[0,1].legend(loc = 'upper left', fontsize=6)
 
-    axs[1,0].plot(np.arange(1,num_iterations+1), q75_cumul_regret[i,:], label = agents[i])
+    axs[1,0].plot(np.arange(1,num_iterations+1), q75_cumul_regret[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[1,0].set_title('0.75 quantile of regret', fontsize = 8)
-    axs[1,0].legend(loc = 'upper left', fontsize=6)
 
-    axs[1,1].plot(np.arange(1,num_iterations+1), q90_cumul_regret[i,:], label = agents[i])
+    axs[1,1].plot(np.arange(1,num_iterations+1), q90_cumul_regret[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[1,1].set_title('0.90 quantile of regret', fontsize = 8)
-    axs[1,1].legend(loc = 'upper left', fontsize=6)
+
+fig.legend(loc='center left', labels=agents)
 
 fig.tight_layout()
 fig.suptitle('Regret metrics from '+str(Rep)+' simulations', fontsize = 10)
-fig.subplots_adjust(top=0.88)
+fig.subplots_adjust(top=0.88, left=0.25)
 plt.savefig(r'file_dir_1')
 
 
-fig, axs = plt.subplots(2, 2)
+fig, axs = plt.subplots(2, 2, figsize=(8,5))
 
 # Compute the cumulative SubOpt metric for each agent
 Cumul_SubOpt = np.cumsum(SubOpt_record, axis = 2)
@@ -379,23 +440,21 @@ q90_cumul_SubOpt = np.quantile(Cumul_SubOpt, 0.90, axis = 1)
 
 # Plot results
 for i in range(len(agents)):
-    axs[0,0].plot(np.arange(1,num_iterations+1), mean_cumul_SubOpt[i,:], label = agents[i])
+    axs[0,0].plot(np.arange(1,num_iterations+1), mean_cumul_SubOpt[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[0,0].set_title('Mean of cumulative SubOpt arms', fontsize = 8)
-    axs[0,0].legend(loc = 'upper left', fontsize=6)
 
-    axs[0,1].plot(np.arange(1,num_iterations+1), median_cumul_SubOpt[i,:], label = agents[i])
+    axs[0,1].plot(np.arange(1,num_iterations+1), median_cumul_SubOpt[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[0,1].set_title('Median of cumulative SubOpt arms', fontsize = 8)
-    axs[0,1].legend(loc = 'upper left', fontsize=6)
 
-    axs[1,0].plot(np.arange(1,num_iterations+1), q75_cumul_SubOpt[i,:], label = agents[i])
+    axs[1,0].plot(np.arange(1,num_iterations+1), q75_cumul_SubOpt[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[1,0].set_title('0.75 quantile of cumul. SubOpt arms', fontsize = 8)
-    axs[1,0].legend(loc = 'upper left', fontsize=6)
 
-    axs[1,1].plot(np.arange(1,num_iterations+1), q90_cumul_SubOpt[i,:], label = agents[i])
+    axs[1,1].plot(np.arange(1,num_iterations+1), q90_cumul_SubOpt[i,:], label = agents[i], color = colors[i], linestyle = linestyles[i])
     axs[1,1].set_title('0.90 quantile of cumul. SubOpt arms', fontsize = 8)
-    axs[1,1].legend(loc = 'upper left', fontsize=6)
+
+fig.legend(loc='center left', labels=agents)
 
 fig.tight_layout()
 fig.suptitle('SubOpt Metrics from '+str(Rep)+' simulations', fontsize = 10)
-fig.subplots_adjust(top=0.88)
+fig.subplots_adjust(top=0.88, left=0.25)
 plt.savefig(r'file_dir_2')

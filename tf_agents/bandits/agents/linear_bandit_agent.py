@@ -32,7 +32,6 @@ import gin
 import tensorflow as tf
 import numpy as np
 
-
 from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.bandits.agents import utils as bandit_utils
@@ -149,13 +148,10 @@ def update_a_and_b_with_forgetting(
   # equal for all arms (and is set to 1)
   var = np.apply_along_axis(variance_fn, 1, x).reshape(-1,1)
 
-  print('Observation:', x, 'gives variance', var)
-
   # Update the state variables according to the observation x, the received
   # reward r, and the known variance in said reward
   a_new = gamma * a_prev + tf.matmul((1/var)*x, x, transpose_a=True)
-  print('r', r)
-  b_new = gamma * b_prev + bandit_utils.sum_reward_weighted_observations(tf.convert_to_tensor(np.multiply(r, 1/var).astype(np.float32)), x)      ##### CHANGED!!!!   # Adds the pointwise product of x and r
+  b_new = gamma * b_prev + bandit_utils.sum_reward_weighted_observations(tf.convert_to_tensor(np.multiply(r, 1/var).astype(np.float32)), x)
 
   eig_vals = tf.constant([], dtype=a_new.dtype)
   eig_matrix = tf.constant([], dtype=a_new.dtype)
@@ -178,6 +174,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
       gamma: float = 1.0,
       rho: float = 0.1,        # Added for ARC
       beta: float = 0.99,      # Added for ARC
+      Verbose: bool=False,     # Added for ARC
       use_eigendecomp: bool = False,
       tikhonov_weight: float = 1.0,
       add_bias: bool = False,
@@ -322,6 +319,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
         alpha=alpha,
         beta = beta,        # Added for ARC
         rho = rho,          # Added for ARC
+        Verbose = Verbose,  # Added for ARC
         eig_vals=self._eig_vals_list if self._use_eigendecomp else (),
         eig_matrix=self._eig_matrix_list if self._use_eigendecomp else (),
         tikhonov_weight=self._tikhonov_weight,
@@ -632,8 +630,6 @@ class LinearBanditAgent(tf_agent.TFAgent):
       tf.compat.v1.assign_add(self._num_samples_list[k],
                               num_samples_for_arm_current)
       num_samples_for_arm_total = self._num_samples_list[k].read_value()
-
-      print('------------------')
 
       # Update the matrix A and b.
       # pylint: disable=cell-var-from-loop,g-long-lambda
