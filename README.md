@@ -1,3 +1,61 @@
+# The Asymptotic Randomised Control Algorithm for Contextual Bandits
+
+This is a fork of the TF-Agents library used for the project ‘The Asymptotic Randomised Control Algorithm for Contextual Bandits’. It has an additional implementation of the Asymptotic Randomised Control algorithm for the multi-armed bandit problem, adapted the contextual bandit case. It also has additional support for per arm environments with rewards sampled with a variance that is a function of the chosen observation. For an overview of the implementation and its subsequent performance comparison against LinearUCB and Thompson Sampling algorithms, read the paper [here](https://samuel-howard.github.io/ARC_for_Contextual_bandits.pdf).
+
+In order to implement the ARC algorithm and the new environment, the following modules in TF-Agents have been modified or added:
+```
+agents/tf_agents/bandits/agents/linear_bandit_agent.py
+agents/tf_agents/bandits/agents/lin_ucb_agent.py
+agents/tf_agents/bandits/agents/linear_thompson_sampling_agent.py
+agents/tf_agents/bandits/agents/lin_arc_agent.py
+agents/tf_agents/bandits/policies/linear_bandit_policy.py
+agents/tf_agents/bandits/policies/arc_policy.py
+agents/tf_agents/bandits/metrics/tf_metrics.py
+```
+
+The scripts used for the examples in the research summary are:
+```
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_sspe_general_case.py
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_per_arm_general_case.py
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_per_arm_with_var_1.py
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_per_arm_with_var_2.py
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_graphical_bandit_1.py
+agents/tf_agents/bandits/agents/examples/ARC_examples/parallel_graphical_bandit_2.py
+```
+
+To run the code yourself, install the library to a new environment (here I describe the process using Anaconda3), and then install the relevant libraries. The commands I used in the Anaconda prompt are as follows, although these may be different depending on the libraries already installed:
+
+```
+conda create --name arc
+activate arc
+Conda install pip git
+Pip install tensorflow
+pip install git+https://github.com/samuel-howard/agents
+Pip install pillow
+Pip install scipy
+Pip install matplotlib
+Pip install joblib
+Pip install networkx
+```
+
+Then clone the repository at https://github.com/samuel-howard/agents locally, and in the `arc` environment navigate to the local version of the repository to run the above scripts.
+
+You can adapt the examples used in the research summary to create different bandit problems. The variable `reward_param` is the hidden parameter, called \theta in the ARC literature. The context sampling functions `global_context_sampling_fn` and `per_arm_context_sampling_fn` define how the global contexts and per arm contexts are sampled respectively, and can be changed (ensure both are defined in the per arm environment cases, even if they are not used e.g. in the case when the global dimension is 0). The function `variance_function` can also be changed.
+
+Other variables that can be changed are:
+`NUM_ACTIONS` - the number of actions that are available for the algorithm to choose from at each timestep.
+`BATCH_SIZE` - the size of the batch used in each parameter update.
+`ncpu` - the number of cores to use when running the simulations in parallel.
+`Rep` - the number of simulations that are run in total (note that this includes any run in previous simulations - see below)
+`num_iterations` - the horizon of the game i.e. the number of times we can play the bandit, denoted T in the ARC literature.
+
+If you would like to use the results of simulations that have already been run (which are stored using the pickle module) then set the variable `use_previous_sims` to `True`. If this is done, ensure that all other parameters are set exactly the same as in the simulations that have already been run.
+
+To change which agents are used, ensure that all agents are defined in the `DEFINE POSSIBLE AGENTS` section, along with the correct names, and are listed in the `possible_agents` list. Then set the names of the agents you would like to run in the `agents` list.
+
+The following in the README from the original TF-Agents library..
+
+
 # TF-Agents: A reliable, scalable and easy to use TensorFlow library for Contextual Bandits and Reinforcement Learning.
 
 [![PyPI tf-agents](https://badge.fury.io/py/tf-agents.svg)](https://badge.fury.io/py/tf-agents)
