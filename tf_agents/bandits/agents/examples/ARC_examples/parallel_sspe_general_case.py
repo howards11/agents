@@ -246,7 +246,6 @@ def run(rep):
         try:
             for agent in possible_agents:
                 if agent.name == agent_name:
-                    print('Added agent', agent_name)
                     used_agents.append(agent)
                     break
         except:
