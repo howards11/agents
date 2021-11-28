@@ -40,7 +40,7 @@ pip install networkx
 
 Then clone the repository at https://github.com/samuel-howard/agents locally, and in the `arc` environment navigate to the local version of the repository to run the above scripts.
 
-You can adapt the examples used in the research summary to create different bandit problems. The variable `reward_param` is the hidden parameter, called \theta in the ARC literature. The context sampling functions `global_context_sampling_fn` and `per_arm_context_sampling_fn` define how the global contexts and per arm contexts are sampled respectively, and can be changed (ensure both are defined in the per arm environment cases, even if they are not used e.g. in the case when the global dimension is 0). The function `variance_function` can also be changed.
+You can adapt the examples used in the research summary to create different bandit problems. The variable `reward_param` is the hidden parameter, called theta in the ARC literature. The context sampling functions `global_context_sampling_fn` and `per_arm_context_sampling_fn` define how the global contexts and per arm contexts are sampled respectively, and can be changed (ensure both are defined in the per arm environment cases, even if they are not used e.g. in the case when the global dimension is 0). The function `variance_function` can also be changed.
 
 Other variables that can be changed are:
 `NUM_ACTIONS` - the number of actions that are available for the algorithm to choose from at each timestep.
