@@ -83,7 +83,7 @@ class RegretMetric(tf_metric.TFStepMetric):
       trajectory_reward = trajectory.reward[bandit_spec_utils.REWARD_SPEC_KEY]
     trajectory_regret = baseline_reward - trajectory_reward
 
-    print('trajectory regret:', trajectory_reward)
+    #print('trajectory regret:', trajectory_reward)
     self.regret.assign(tf.reduce_mean(trajectory_regret))
     return trajectory
 
@@ -247,7 +247,7 @@ class SuboptimalArmsMetricNew(tf_metric.TFStepMetric):
                         tf.gather(concatenated, trajectory.action, batch_dims=1)),
                         tf.bool)
 
-    print('disagreement', tf.reduce_any(disagreement, axis = 1))
+    #print('disagreement', tf.reduce_any(disagreement, axis = 1))
     # If any entry is different, increase by 1 (as the chosen arm is suboptimal)
     self.suboptimal_arms.assign(tf.reduce_mean(tf.cast(tf.reduce_any(disagreement, axis=1), tf.float32)))
     return trajectory
