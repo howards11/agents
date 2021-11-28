@@ -28,14 +28,14 @@ To run the code yourself, install the library to a new environment (here I descr
 ```
 conda create --name arc
 activate arc
-Conda install pip git
-Pip install tensorflow
+conda install pip git
+pip install tensorflow
 pip install git+https://github.com/samuel-howard/agents
-Pip install pillow
-Pip install scipy
-Pip install matplotlib
-Pip install joblib
-Pip install networkx
+pip install pillow
+pip install scipy
+pip install matplotlib
+pip install joblib
+pip install networkx
 ```
 
 Then clone the repository at https://github.com/samuel-howard/agents locally, and in the `arc` environment navigate to the local version of the repository to run the above scripts.
