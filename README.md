@@ -38,7 +38,7 @@ pip install joblib
 pip install networkx
 ```
 
-Then clone the repository at https://github.com/samuel-howard/agents locally, and in the `arc` environment navigate to the local version of the repository to run the above scripts.
+Then clone the repository at https://github.com/samuel-howard/agents locally, and in the `arc` environment navigate to the local version of the repository to run the above scripts. For the code to run, the versions of TensorFlow and Tensorflow Probability must be compatible, so updating them may be required. Use `pip install --upgrade tensorflow-probability`.
 
 You can adapt the examples used in the research summary to create different bandit problems. The variable `reward_param` is the hidden parameter, called theta in the ARC literature. The context sampling functions `global_context_sampling_fn` and `per_arm_context_sampling_fn` define how the global contexts and per arm contexts are sampled respectively, and can be changed (ensure both are defined in the per arm environment cases, even if they are not used e.g. in the case when the global dimension is 0). The function `variance_function` can also be changed.
 
