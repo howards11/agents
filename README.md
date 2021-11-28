@@ -43,11 +43,11 @@ Then clone the repository at https://github.com/samuel-howard/agents locally, an
 You can adapt the examples used in the research summary to create different bandit problems. The variable `reward_param` is the hidden parameter, called theta in the ARC literature. The context sampling functions `global_context_sampling_fn` and `per_arm_context_sampling_fn` define how the global contexts and per arm contexts are sampled respectively, and can be changed (ensure both are defined in the per arm environment cases, even if they are not used e.g. in the case when the global dimension is 0). The function `variance_function` can also be changed.
 
 Other variables that can be changed are:
-`NUM_ACTIONS` - the number of actions that are available for the algorithm to choose from at each timestep.
-`BATCH_SIZE` - the size of the batch used in each parameter update.
-`ncpu` - the number of cores to use when running the simulations in parallel.
-`Rep` - the number of simulations that are run in total (note that this includes any run in previous simulations - see below)
-`num_iterations` - the horizon of the game i.e. the number of times we can play the bandit, denoted T in the ARC literature.
+* `NUM_ACTIONS` - the number of actions that are available for the algorithm to choose from at each timestep.
+* `BATCH_SIZE` - the size of the batch used in each parameter update.
+* `ncpu` - the number of cores to use when running the simulations in parallel.
+* `Rep` - the number of simulations that are run in total (note that this includes any run in previous simulations - see below)
+* `num_iterations` - the horizon of the game i.e. the number of times we can play the bandit, denoted T in the ARC literature.
 
 If you would like to use the results of simulations that have already been run (which are stored using the pickle module) then set the variable `use_previous_sims` to `True`. If this is done, ensure that all other parameters are set exactly the same as in the simulations that have already been run.
 
