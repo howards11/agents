@@ -19,7 +19,7 @@ changing variance
 
 *********************** ADDED TO ASSESS ARC PERFORMANCE ************************
 
-This is the example in Figure ?? in the Research Summary
+This is the example in Figures 8 and 9 in the Research Summary
 
 Add in your chosen file directories (file_dir_1, file_dir_2) to save the plots
 
